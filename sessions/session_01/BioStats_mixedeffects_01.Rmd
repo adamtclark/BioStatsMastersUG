@@ -1,0 +1,189 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 2-1"
+author: "Adam Clark"
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+First, we're going to cover a (very brief) recap of linear regression in R, and then move on to a motivation for, and application of, mixed-effects models.
+
+Mixed-effects models, as they are commonly implemented in R, take advantage of the methods we've been discussing in order to "group" uncertainty across different levels of organisation. I'll include some more detail on this below, but you can basically think of these models as a series of Gaussian priors that we use to structure residual variance. If you want a really detailed walk-through for these methods, the book [here](https://link.springer.com/book/10.1007/b98882) is a good place to start.
+
+## Ordinary Least Squares (OLS) Example
+
+Let's start with a very simple relationship between two variables: plant diversity, and plot-level biomass. The data below are "fake" (and I'll include the scripts that I use to create them), but this is a very general pattern that we often see in biodiversity experiments.
+
+```{r echo=TRUE}
+# OLS example
+set.seed(231011) # seed for analyses
+intercepts = 5 # y-intercept
+slopes = 8 # slope
+error = 10 # residual error
+
+# make fake data for 50 plots
+bdat = data.frame(plot = 1:50,
+                  diversity = sample(1:32, 50, rep = TRUE), # randomly select richness between 1 and 32
+                  biomass = NA)
+
+# generate random biomass data
+bdat$biomass=intercepts + slopes*bdat$diversity + rnorm(nrow(bdat), 0, error)
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, data = bdat)
+
+# fit a regression
+mod_ols = lm(biomass~diversity, data = bdat)
+
+# add regression line to plot
+curve(coef(mod_ols)[1]+coef(mod_ols)[2]*x, from = 1, to = 32, add = TRUE, lty = 2)
+
+# get summary of regression
+summary(mod_ols)
+```
+
+## Multiple Regression
+
+So far so good. Now, let's try a case where the y-intercept varies across different subsets of data. We'll call each of these subsets a "block". To fit this case correctly, we'll need to fit a multiple regression, with block as a covariate.
+
+```{r echo=TRUE}
+# Multiple regression example
+set.seed(231011) # seed for analyses
+slopes = 8 # slope
+error = 10 # residual error
+n_blocks = 10 # number of blocks
+intercepts = sort(rnorm(n_blocks, mean = 100, sd = 80)) # y-intercepts for each block
+
+# make fake data for 50 plots
+bdat = data.frame(plot = 1:50,
+                  block = rep(1:n_blocks, each = 50),
+                  diversity = sample(1:32, 50*n_blocks, rep = TRUE), # randomly select richness between 1 and 32
+                  biomass = NA)
+
+# generate random biomass data
+bdat$biomass=intercepts[bdat$block] + slopes*bdat$diversity + rnorm(nrow(bdat), 0, error)
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, data = bdat, col = rainbow(n_blocks)[bdat$block])
+
+# fit a regression
+mod_mreg = lm(biomass~-1+as.factor(block) + diversity, data = bdat)
+# NOTE: think about what this "-1" is doing. Try fitting the model with and without it, and looking at the "summary".
+
+# add regression line to plot
+for(i in 1:n_blocks) {
+curve(coef(mod_mreg)[i]+coef(mod_mreg)[n_blocks+1]*x, from = 1, to = 32, add = TRUE, lty = 2, col = rainbow(n_blocks)[i])
+}
+
+# get summary of regression
+summary(mod_mreg)
+
+# compare to a model without the intercept term
+mod_mreg_mean = lm(biomass~diversity, data = bdat)
+abline(mod_mreg_mean, lty = 2, col = "black", lwd = 2)
+summary(mod_mreg_mean)
+```
+
+## Simple mixed effects model (random intercepts)
+
+Alright - it looks like accounting for the different intercepts among blocks helps us better account for observed variability in the data.
+
+But, let's now try another case, where some of the data are missing. Let's pretend that we only have data from 1 plot from each block. What happens now?
+
+```{r echo=TRUE}
+# remove data from block 6
+bdat_small = bdat[bdat$plot == 1,]
+
+# try to fit a model...
+mod_mreg2 = lm(biomass~-1+as.factor(block) + diversity, data = bdat_small)
+
+# get summary of regression
+summary(mod_mreg2)
+```
+
+Uhoh - looks like we are getting errors. This is because we don't have enough data in order to fit a linear model to most of the sites.
+
+Instead, we can try fitting a "mixed effects" model. These models allow us to "bundle" uncertainty across plots. Let's try running the code first, and then walk through that the code actually means.
+
+```{r echo=TRUE}
+require(nlme) # load nlme package
+
+mod_mixef1 = lme(biomass~diversity, random = ~1|block, data = bdat_small)
+
+summary(mod_mixef1)
+```
+
+The bottom part of the output tells us more or less the same thing that we would have gotten from the call `lm(biomass~diversity)` (i.e. a single slope and a single intercept estimate).
+
+The top part tells us something about how variance was grouped in the model. We can look at this output more directly using:
+
+```{r echo=TRUE}
+VarCorr(mod_mixef1)
+```
+
+The residual intercept is just the unexplained variation (for larger sample sizes, this should match the "error" term above). More interestingly, note that the standard deviation across intercepts roughly matches the standard deviation of the intercept values for each block:
+
+```{r echo=TRUE}
+sd(intercepts)
+```
+
+This is the magic prior being used "under the hood" in this analysis. Because we included the argument `random = ~1|block)`, R assumes that the intercept term (`1`) is normally distributed and varies across blocks. We can even access estiamates for these different intercept terms, and use these estimates to draw regression lines:
+
+
+```{r echo=TRUE}
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, data = bdat_small, col = rainbow(n_blocks)[bdat_small$block])
+
+# fit a regression
+print(ranef(mod_mixef1))
+
+# add regression line to plot
+for(i in 1:n_blocks) {
+curve(fixef(mod_mixef1)[1]+ranef(mod_mixef1)[i,1] + fixef(mod_mixef1)[2]*x, from = 1, to = 32, add = TRUE, lty = 2, col = rainbow(n_blocks)[i])
+}
+```
+
+We can even compare these estimates to the full dataset, and show that they do a pretty good job of estimating block-level values:
+
+```{r echo=TRUE}
+par(mar = c(4,4,2,2), mfrow = c(1,2))
+pred = predict(mod_mixef1, newdata = bdat)
+plot(pred, bdat$biomass, xlab = "prediction", ylab = "observation", col = rainbow(n_blocks)[bdat$block], main = "mixed effects estimate")
+
+abline(a=0, b=1, lty =2) # add 1-1 line
+
+
+# compare to fit from "simple" model
+mod_ols_simple = lm(biomass ~ diversity, data = bdat_small)
+pred2 = predict(mod_ols_simple, newdata = bdat)
+plot(pred2, bdat$biomass, xlab = "prediction", ylab = "observation", col = rainbow(n_blocks)[bdat$block], main = "fixed effects estimate")
+
+abline(a=0, b=1, lty =2) # add 1-1 line
+```
+
+Notice that the observed vs. predicted plot shows a much tighter relationship for the cases with the "random" intercept. We've managed to successfully "borrow" statistical power across replicates!
+
+### Note on interpreting mixed effects models
+
+Technically, all "mixed effects" models implemented using common packages such as `nlme` or `lmer` in R carry out three independent, but mutually supporting, actions:
+1) Estimates paramter values for each level of the model, BASED ON THE ASSUMPTION OF A GAUSSIAN PRIOR.
+2) Accounts for autocorrelation among residuals ("pseudoreplication").
+2) Adjusts the degrees of freedom based on observation number and random effect structure, to generate a p-value.
+
+Importantly, the resulting parameter estimates are no longer "BLUE"s ("best linear unbiased estimate"). Instead, they are "BLUP"s ("best linear unbiased predictors). That is, unlike OLS, where parameter estimates can (in some cases) be though of as estimates of the causal effect of variables on one another, mixed effect models focus on *predicting outcomes* - thus, paramter estimates can be (and often are) biased. E.g. for most analyses of experimental data, the BLUP estimate represents a conservative "minimum" effect size for the treatment in question treatment.
+
+Note that some people feel very strongly that you should never model a variable as "random" if you have fewer than 6 or so replicates within a level (e.g. fewer than 6 plots per subplot). In general, models behave just fine with fewer replicates, but as this number gets smaller, it gets harder to fit your model, and the estimates will become less accurate.
+
+Finally, in case you are wondering what the "~" symbol is for - this is just an oddity of the R language that is necessary for defining a function (which is what is being done under the hood for the fixed and random effects parts of the models we are fitting). These will always need to be there, but we can pretty much ignore them.
+
+### Note on general lingo
+
+Usually, we talk about model "effect sizes", "p-values", and "goodness of fit" (e.g. R-squared) as the three most important summary statistics of a regression. These represent, respectively: (1) our estimate of the relative change of a variable relative to other variables; (2) our relative confidence in our estimate of that variable relative to the null hypothesis that there is no relationship (though this interpretation is a bit controversial); and (3) how well model predictions represent the true states of the system. All three of these points can optimized for independently, and all three are important for interpreting a model.
+

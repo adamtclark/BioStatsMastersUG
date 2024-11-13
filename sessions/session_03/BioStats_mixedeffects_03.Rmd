@@ -1,0 +1,144 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 2-3"
+author: "Adam Clark"
+date: ""
+output: html_document
+---
+
+## Nested models
+  
+One of the most common uses of mixed effects models is to deal with "nested" data structures - e.g. cases where we have plots and subplots, and we want to control for potential autocorrelation in measurements across these different levels.
+
+As an example, consider the following dataset:
+  
+```{r echo=TRUE}
+require(nlme)
+
+# Nested data example
+set.seed(231011) # seed for analyses
+
+error = 10 # residual error
+n_plots = 30 # number of plots
+n_subplots = 6 # subplots per block
+intercepts_plots = sort(rnorm(n_plots, mean = 200, sd = 40)) # y-intercepts for each plot
+
+intercepts_subplots = matrix(nrow = n_plots, ncol = n_subplots)
+for(i in 1:n_plots) {
+  intercepts_subplots[i,] = rnorm(n_subplots, mean = intercepts_plots[i], sd = 20) # intercept for each subplot
+}
+
+head(intercepts_subplots) # look at coefficient matrix
+
+
+
+
+bdat = NULL
+for(j in 1:2) {
+  # make fake data
+  bdat_tmp = data.frame(plot = rep(1:n_plots, each = n_subplots),
+                    subplot = 1:n_subplots,
+                    biomass = NA)
+  
+  bdat_tmp$biomass = intercepts_subplots[cbind(bdat_tmp$plot, bdat_tmp$subplot)] + rnorm(n_plots*n_subplots, 0, error)
+  
+  bdat = rbind(bdat, bdat_tmp)
+}
+```
+
+The result is a dataset of length 360 - i.e. two observations from each of 6 subplots in each of 30 plots (30x6x2 = 360).
+
+Now, let's first go ahead and fit *just* a model of plot-level effects. Before reading the code below, try writing out a version of this model yourself.
+
+Note that we only are modelling mean biomass in each plot (i.e. the "intercepts") rather than a relation with diversity. This will result in a "random effects model" - i.e. a mixed effects model with no fixed effects (other than the y-intercept). This is actually the kind of analysis for which mixed effects models were initially developed to conduct (e.g. for systems with lots of categorical predictor variables, such as differences in manufacturing outputs across employees in a big company).
+
+```{r echo=TRUE}
+# Analyse data
+mmod = lme(biomass ~ 1, data = bdat, random = ~1|plot)
+
+summary(mmod)
+```
+
+To fit a nested model that also includes subplot-level effects, we simply add another argument to the random effect term:
+
+```{r echo=TRUE}
+# Analyse data
+mmod2 = lme(biomass ~ 1, data = bdat, random = ~1|plot/subplot)
+
+summary(mmod2)
+```
+
+Not, let's see how good a job we did of estimating the variability at each level in this model. Remember, residual error should be 30, plot-level variability should be 40, and subplot-level variability should be 20 (based on the standard deviations in the script above).
+
+```{r echo=TRUE}
+VarCorr(mmod2)
+
+VarCorr(mmod2)[,2] # look at standard deviations
+```
+
+Note, we are close, but not exactly there (we've under-estimated subplot-level and residual-level variability). See notes below for a breif explanation of this point. Among other things, note that we have no estimate of uncertainty in these variability estimates (e.g. we can't test whether they are significantly different from zero). One way to address this is to apply model comparison, which we will do below. We could also use other methods to fit the model - e.g. bootstrapping, or MCMC. We'll apply these tools in later sessions.
+
+## Model selection
+
+Just like a regular OLS, we can compare mixed effects models using things like ANOVA or AIC. However, things are a bit different - in general, we need use a different fitting algorithm ("ML", or "maximum likelihood") when we are fitting models for the purpose of model comparison, and then return to the default fitting algorithm ("REML", or "reduced maximum likelihood") once we have identified the best model. Here's an example of how to do so:
+  
+```{r echo=TRUE}
+# re-fit models
+ML_mmod = update(mmod, method = "ML")
+ML_mmod2 = update(mmod2, method = "ML")
+
+# run ANOVA
+anova(ML_mmod, ML_mmod2)
+```
+
+The p-value is less than 0.05 - this suggests that the more complex model - mmod2 - adds significant explanatory power - i.e. that there is structuring of residuals at the subplot level (which we already knew since we simulated the data that way). Note that if we try to do the same analysis, but with some random extra variable that we know has no influence of the data:
+  
+```{r echo=TRUE}
+bdat$fake_subplot = sample(1:50, n_plots*n_subplots*2, replace = TRUE)
+
+ML_mmod3 = lme(biomass ~ 1, data = bdat, random = ~1|plot/fake_subplot, method = "ML")
+
+# run ANOVA
+anova(ML_mmod, ML_mmod3)
+```
+
+we end up with p > 0.05 - i.e. the test tells us that there is no significant addition of information value to the model based on the additional fake_subplot data (which is encouraging...).
+
+Remeber that once we've found our "best" model, we need to re-fit in order to interpret it:
+
+```{r echo=TRUE}
+mmod2 = update(ML_mmod2, method = "REML")
+summary(mmod2)
+```
+
+You can apply these test to all kinds of models. ANOVA apply for any nested set of models (i.e. models that differ in only a single random effect or a single fixed effect), whereas AIC can be applied for (most) any analyses that share the same response variables. Remember that for AIC, smaller values mean better fitting models (though also note that AIC can be under-conservative for big datas´ets). We'll discuss more complex examples in later classes.´
+
+## Your turn: Homework 2:
+
+Try fitting different structures of models (combinations of fixed effect slopes and intercepts, and random effects vs. nested random effects).
+
+```{r echo=TRUE}
+bdat = read.csv("dataset_2.csv")
+n_plots = length(unique(bdat$plot))
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, col = rainbow(n_plots)[plot], pch = subplot, data = bdat)
+```
+
+Note - different point types show different subplots, and different colors show different plots. We can plot these trends a bit more informatively using the `coplot` command. It is set up similarly to the `lme` function (with some extra bits that we'll discuss later).
+
+```{r echo=TRUE}
+par(mar=c(4,4,2,2))
+coplot(biomass~diversity|as.factor(plot), data = bdat,
+       panel = function(x, y, ...) {points(x,y, pch = bdat$subplot[bdat$plot==1])})
+```
+
+What form of regression should you use? Random slopes? Random intercepts? Nested? Something else?
+
+What do the results of the regression show us? What are the fixed and random effects estimates? What is the variability across parameters?
+
+## Next section:
+
+Work through the datasets described here, and post any questions you have on the blog on the course website. In addition, try to find a "real-world" example of a dataset (e.g. from your research) that can be analysed using the tools we've discussed today, and try applying them. What model structure fits best? What does this structure hypothesise about the data? What do your results tell you?
+
+We'll discuss these points together in the coming sessions. Next, we'll expand on the topics we've discussed this far using two additional packages: `lme4`, and `brms`.

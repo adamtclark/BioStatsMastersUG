@@ -1,0 +1,386 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 2-5"
+author: "Adam Clark"
+date: ""
+output: html_document
+---
+  
+## "Confounders" in regression models
+
+Now, we are going to work through some examples of "confounding" variables, as discussed by Richard McElreath in his lectures [here](https://www.youtube.com/watch?v=mBEA7PKDmiY&list=PLDcUM9US4XdPz-KxHM4XHt7uUVGWWVSus&index=6).
+
+Below are a series of DAGs ("directional acyclic graphs"). These can be used to summarize qualitative information about the connections and directions by which causal information flows through a system. Depending on how these relationships are structured, different forms of analyses need to be applied to extract "correct" estimates of causal forcing.
+
+Note - these corrections are both complicated, and exceedingly important! Implementing them carefully can give you vastly improved estimates of causal effects (even in experimental data!). Keep in the back of your head, though, that most of the corrections discussed here rest on the strong assumption that you model structure and all underlying equations are "correct".
+
+### The "Fork"
+The fork describes cases where a single variable $Z$ causally "forces" (i.e. effects) two "response" variables $X$ and $Y$, which are not directly causally related to one another. This relationship can be summarised in the following DAG.
+
+```{r echo=FALSE, message=FALSE, fig.width=5, fig.height=4}
+require(dagitty) # package for drawing DAGS
+
+# fork example
+exdag <- dagitty( "dag {
+    X <- Z -> Y
+}")
+
+# plot
+plot(exdag)
+```
+
+In this case, we will (incorrectly) assume that there is a relationship between $X$ and $Y$, unless we first control for $Z$. Consider the following simple linear example:
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+n = 100
+set.seed(232811)
+
+Z = rnorm(n)
+Y = rnorm(n) + 0.8*Z
+X = rnorm(n) - 1.3*Z
+
+plot(Y~X)
+mod_F_YX = lm(Y~X)
+summary(mod_F_YX)
+abline(mod_F_YX)
+```
+
+To solve this problem, we first need to "control for" the effect of $Z$. For simple linear models, we can do this by regressing $X$ and $Y$ against Z, and then retaining their residuals, and conducting our analyses on these.
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+mod_F_XZ = lm(X ~ Z)
+mod_F_YZ = lm(Y ~ Z)
+
+XresidZ = resid(mod_F_XZ)
+YresidZ = resid(mod_F_YZ)
+
+plot(YresidZ~XresidZ)
+mod_F_AVP_XY = lm(YresidZ~XresidZ)
+summary(mod_F_AVP_XY)
+abline(mod_F_AVP_XY)
+```
+
+This kind of plot is known as an "added variable plot" (AVP), and can be used to test whether a new predictor contains additional useful information for a multivariate regression (e.g. whether a regression predicting X from Z will benefit from additional information contained in Y). Here, we've shown that this is not the case - i.e. that $X$ and $Y$ share no variation other than that jointly driven by forcing variable $Z$.
+
+We can also repeat this analysis using the "rethinking" package from McElreath:
+
+```{r echo=TRUE, fig.width=5, fig.height=4, message=FALSE}
+require(rethinking)
+
+# standardise data
+dat <- list(
+    X = standardize(X),
+    Y = standardize(Y),
+    Z = standardize(Z)
+)
+
+m_XYZ <- quap(
+    alist(
+        Y ~ dnorm(mu,sigma),
+        mu <- a + bX*X + bZ*Z,
+        a ~ dnorm(0,2), # priors
+        bX ~ dnorm(0,2),
+        bZ ~ dnorm(0,2),
+        sigma ~ dexp(1)
+    ) , data=dat )
+
+plot(precis(m_XYZ))
+```
+
+which "correctly" captures the effect of $Z$ on $X$, while identifying the lack of a direct effect on $Y$. McElreath notes in his lecture that this estimate will only be unbiased if we are working with a simple, purely linear model.
+
+For more complex systems, he suggests "simulating" an experiment. To carry out this experiment, we (through simulation) pretend to experimentally manipulate the variable $Y$, so as to force it to be independent of any confounding variables (including $Z$).
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+post = extract.samples(m_XYZ) # extract estimates of parameters
+
+# sample Z from data
+niter = 1e3
+Zs = sample(x = dat$Z, niter, rep = TRUE)
+
+# simulate Y for hypothetical cases with X = 0
+DY0 = with(post, rnorm(niter, a+bX*0+bZ*Zs, sigma))
+
+# simulate Y for hypothetical case where X = 1 (1 std, since units are standardised)
+# but using the same Z values
+DY1 = with(post, rnorm(niter, a+bX*1+bZ*Zs, sigma))
+
+# contrast and plot
+Y10_contrast = DY1-DY0
+dens(Y10_contrast, xlab = "effect of 1 std increase in X on Y")
+abline(v = 0, h = 0, lty = 3)
+```
+
+This approach can be used to estimate the average effect of $Y$ on $X$ across the range of values included in our dataset, even if the relationship is nonlinear. BUT note that this approach still assume that the regression is related to the "correct" model - i.e. that our predictions of $X$ drawn from the model are valid estimates of its true state under various circumstances.
+
+#### Going old-school
+
+One brief side-note: in theory, we could carry out something simlar to the Bayesain analysis by just fitting a multivariate linear regression:
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+mod_F_YZX = lm(Y~Z+X)
+summary(mod_F_YZX)
+```
+
+This model (corretly) finds no association between $X$ and $Y$. In general, this will work in most cases, though ordinary least squares can get a bit tricky when you have highly correlated predictors (e.g. as is the case with $X$ and $Z$) -- technically, this is breaking one of the assumptions of OLS. The problem is that a wide range of potential parameter values all fit equally well - either "giving" the effect of shared variation to $X$. The paramters that end up chosen will be strongly determined by the way that random variation just happened to fall out in the sample of data that you are trying to analyse.
+
+The advantage of optimisers used for Bayesian analyses is that they tend to estimate the full posterior distribution, meaning that it gives you average effect estimates across the full range of possible divisions of that variation. But this is definitely getting too deep in the weeds, so for now, just remember that the Bayesian parameter estimates (or things like the AVP analysis) will tend to be less biased if you structure your regression correctly.
+
+### The "Pipe"
+
+Next, we consider a case where a "mediator" variable $Z$ sits bewteen $X$ and $Y$ on a causal pathway, but does not directly influence variable $X$.
+
+```{r echo=FALSE, message=FALSE, fig.width=5, fig.height=4}
+require(dagitty) # package for drawing DAGS
+
+# pipe example
+exdag <- dagitty( "dag {
+    X -> Z -> Y
+}")
+
+# plot
+plot(exdag)
+```
+
+The problem here is that, although $X$ indirectly influences $Y$ via $Z$, there is no direct effect. And so, if we control for the effect of $Z$ while estimating the effect of $X$ on $Y$, we will fully remove this effect, and conclude that the two are not related.
+
+In some cases, this can be a good thing -- but not always. McElreath gives the example of $X$ as a fungicide treatment, $Z$ as a fungus, and $Y$ as plant growth. Here, the fungicide obviously (indirectly) influences plang growth, but because we can fully explain that effect based on the abundance of fungus, controlling for $Z$ will erase that effect, and cause us to (erroneously) conclude that the fungicide has no effect.
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+n = 100
+
+X = rep(c(0,1), each = n/2) # fungicide - 1 = yes, 2 = no
+Z = rnorm(n, mean = 2) - X # fungus: negative effect of fungicide on fungus
+Y = rnorm(n, mean = 5) - 0.8*Z # plant: negative effect of fungus on plant
+
+# make the AVP
+mod_P_XZ = lm(X ~ Z)
+mod_P_YZ = lm(Y ~ Z)
+
+XresidZ = resid(mod_P_XZ)
+YresidZ = resid(mod_P_YZ)
+
+plot(YresidZ~XresidZ)
+mod_P_AVP_XY = lm(YresidZ~XresidZ)
+summary(mod_P_AVP_XY)
+abline(mod_P_AVP_XY)
+```
+
+The solution that he proposes is to simply ignore the variable $Z$ in our analysis.
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+plot(Y~X)
+mod_F_YX = lm(Y~X)
+summary(mod_F_YX)
+abline(mod_F_YX)
+```
+
+This will leave us with a "total" causal effect of $X$ on $Y$ based on the indirect causal pathway through $Z$ -- i.e. just use the regular old regression coefficient, showing a positive effect of fungicide on plant growth (or we can use the simulated contrast, as discussed above, for non-linear systems). For more details and code for this case, see the McElreath book.
+
+### The "Collider"
+
+The collider is a particularly pernicious case, where two variables $X$ and $Y$ jointly causally force shared variable $Z$, but do not interact directly.
+
+```{r echo=FALSE, message=FALSE, fig.width=5, fig.height=4}
+require(dagitty) # package for drawing DAGS
+
+# collider example
+exdag <- dagitty( "dag {
+    X -> Z <- Y
+    
+}")
+
+# plot
+plot(exdag)
+```
+
+This case can be especially tricky because controlling for the effects of $Z$ on either variable $X$ or $Y$ can lead to the (erroneous) conclusion that the $X$ and $Z$ are causally related.
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+n = 100
+
+Y = rnorm(n)
+X = rnorm(n)
+Z = rnorm(n) + 0.9*X - 1.3*Y
+
+mod_C_XZ = lm(X ~ Z)
+mod_C_YZ = lm(Y ~ Z)
+
+XresidZ = resid(mod_C_XZ)
+YresidZ = resid(mod_C_YZ)
+
+plot(YresidZ~XresidZ)
+mod_C_AVP_XY = lm(YresidZ~XresidZ)
+summary(mod_C_AVP_XY)
+abline(mod_C_AVP_XY)
+```
+
+The collider will even fool a fancy Bayesian model!
+
+```{r echo=TRUE, fig.width=5, fig.height=4, message=FALSE}
+# standardise data
+dat <- list(
+    X = standardize(X),
+    Y = standardize(Y),
+    Z = standardize(Z)
+)
+
+m_XYZ <- quap(
+    alist(
+        Y ~ dnorm(mu,sigma),
+        mu <- a + bX*X + bZ*Z,
+        a ~ dnorm(0,2), # priors
+        bX ~ dnorm(0,2),
+        bZ ~ dnorm(0,2),
+        sigma ~ dexp(1)
+    ) , data=dat )
+
+plot(precis(m_XYZ))
+```
+
+On the other hand, if we simply test the the link between $X$ and $Y$ without including $Z$, the problem goes away, and we "correctly" find that there is no relationship between them. Again, the solution is to *not* control for $Z$ in your analyses.
+
+```{r echo=TRUE, fig.width=5, fig.height=4, message=FALSE}
+m_XYZ <- quap(
+    alist(
+        Y ~ dnorm(mu,sigma),
+        mu <- a + bX*X,
+        a ~ dnorm(0,2), # priors
+        bX ~ dnorm(0,2),
+        sigma ~ dexp(1)
+    ) , data=dat )
+
+plot(precis(m_XYZ))
+```
+
+A nice real-world example relates to the common complaint that good books are always turned into bad movies. The link to colliders is from McElreath's lecture, though the example itself is from a great YouTube video from Numberphile -- link [here](https://www.youtube.com/watch?v=FUD8h9JpEVQ).
+
+Let's first assume that there is no relationship at all between book and movie qualitiy. It's all just luck of the draw. So, if we plot their qualities against eachother, you get:
+
+```{r echo=FALSE, fig.width=5, fig.height=4}
+set.seed(12321)
+Y = rnorm(10*n, 0, 0.3)
+X = rnorm(10*n, 0, 0.3)
+
+plot(Y~X, xlab = "book quality", ylab = "movie quality",
+     col = adjustcolor("black", 0.5), cex = 0.5,
+     xlim = c(-1,1), ylim = c(-1,1))
+abline(h=0, v=0, lty=2)
+```
+
+Now, let's admit that we aren't super well-read. So, we only know about good books. If a bad book happens to be turned into a movie, we might still like the movie, but we probably won't know that it was adapted from a book in the first place. This means that much of the left side of the plot becomes invisible to us.
+
+```{r echo=FALSE, fig.width=5, fig.height=4}
+set.seed(12321)
+mask = rep(1, length(X))
+mask[X < runif(length(X))] = 2
+
+plot(Y~X, xlab = "book quality", ylab = "movie quality",
+     col = adjustcolor(c("black", "grey")[mask], 0.5), cex = 0.5,
+     xlim = c(-1,1), ylim = c(-1,1))
+abline(h=0, v=0, lty=2)
+```
+
+Finally, let's admit that we don't actually watch that many movies either. Really, we only go to super popular ones, which means that we are much more likely to see "good" movies than "bad" movies. That leaves us with:
+
+```{r echo=FALSE, fig.width=5, fig.height=4}
+mask[Y < runif(length(X))] = 2
+
+plot(Y~X, xlab = "book quality", ylab = "movie quality",
+     col = adjustcolor(c("black", "grey")[mask], 0.5), cex = 0.5,
+     xlim = c(-1,1), ylim = c(-1,1))
+abline(h=0, v=0, lty=2)
+```
+
+Now, if we fit a regression to just the movies that we have watched that we know are based on books, we find (to our horror) that there is indeed a negative correlation between the two!
+
+```{r echo=FALSE, fig.width=5, fig.height=4}
+plot(Y[mask==1]~X[mask==1], xlab = "book quality", ylab = "movie quality",
+     cex = 0.5, xlim = c(0,1), ylim = c(0,1))
+abline(lm(Y[mask==1]~X[mask==1]))
+abline(h=0, v=0, lty=2)
+```
+
+This is because, even though movie quality and book quality are not related, we are jointly "controlling" for them based on our knowledge and choices (and thse are indeed impacted by the book and movie quality). McElreath notes that there are lots of similar cases that relate to post-selection controls in experiments -- the short answer is that these are basically always a bad idea.
+
+### The "Descendant"
+
+McElreath describes the descendant as a "parasite" on the other kinds of confounders (and luckily a relatively simple one to control for).
+
+The basic idea is that we have a variable $A$ that is causally forced by $Z$, but not related to the other variables that we are trying to analyse. This can occur for any of the cases listed above, but as an example with a pipe set-up:
+
+```{r echo=FALSE, message=FALSE, fig.width=5, fig.height=4}
+require(dagitty) # package for drawing DAGS
+
+# descendant example
+exdag <- dagitty( "dag {
+    X -> Z -> Y
+    Z -> A
+}")
+
+# plot
+plot(exdag)
+```
+
+The result is effectively that $A$ inherits some of the problems that $Z$ causes in trying to estimate causal effects. For example, if we try to condition on $A$ in this analysis:
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+n = 100
+
+X = rep(c(0,1), each = n/2) # fungicide - 1 = yes, 2 = no
+Z = rnorm(n, mean = 2) - X # fungus: negative effect of fungicide on fungus
+Y = rnorm(n, mean = 5) - 0.8*Z # plant: negative effect of fungus on plant
+A = rnorm(n, mean = 2) - 0.5*Z # ladybug: is negatively impacted by fungus, but doesn't hurt plants
+
+# make the AVP, conditioning on A
+mod_D_XA = lm(X ~ A)
+mod_D_YA = lm(Y ~ A)
+
+XresidA = resid(mod_D_XA)
+YresidA = resid(mod_D_YA)
+
+plot(YresidA~XresidA)
+mod_D_AVP_XY = lm(YresidZ~XresidZ)
+summary(mod_D_AVP_XY)
+abline(mod_D_AVP_XY)
+```
+
+we find that like $Z$, it removes (some of) the association between fungicide and plant growth, even though we are only conditioning on ladybug abundance. This is a very, very common problem in multiple regression -- i.e. we very often end up with things that are correlated with other variables in our models. And so, you really need to think very hard about what variables to include in your regression, what to control for, and what to leave out.
+
+### Bonus: Model misspecification
+
+Model misspecification is a case that is not directly considered by McElreath in his lecture on confounders, though he alludes to the problem frequently in his lectures and book. The general idea is a case like:
+
+```{r echo=FALSE, message=FALSE, fig.width=5, fig.height=4}
+require(dagitty) # package for drawing DAGS
+
+# misspecification
+exdag <- dagitty( "dag {
+    X -> f
+    f -> Y
+}")
+
+# plot
+plot(exdag)
+```
+
+where $f$ is some complex nonlinear function of $X$ - e.g. $sin(X)$. Somewhat obviously, if we try to fit model coefficinets for this using a simple linear model, we run into trouble.
+
+```{r echo=TRUE, fig.width=5, fig.height=4}
+X = seq(0, 11*pi, length=n)
+Y = sin(X)
+
+plot(Y~X, type = "l")
+
+mod_nL = lm(Y~X)
+summary(mod_nL)
+abline(mod_nL)
+```
+
+Here, we end up with a slope estimate of almost exactly zero, and no significant relationships detected -- even though there is clearly a relationship between $X$ and $Y$.
+
+This is a general warning about applying these kinds of causal inference approaches. The first step before any of them can be used (or indeed, before any kind of regression can be applied) is to think very, very hard about the functional forms underlying the data in your system, and about the causal associations that connect them. To me, this first step really is the most important and exciting part of science -- it's where we make hypotheses about how the world works, and put them into quantitatively rigorous forms. The regressions and analyses are still important, but at the end of the day, they are just book-keeping to try to tease out the numbers that are implied by our hypotheses.
+
+### Remaining class time:
+For the rest of the class we can also work on other problems or methods that you'd like to discuss -- e.g. extensions of the nlme function for nonlinear data (e.g. growth dynamics and weighting routines), or we could dig deeper into informative priors.
+
+Remember that our final meeting (on Friday) will focus on applying these methods to a dataset - this will serve as your "final exam" for this part of the course.

@@ -1,0 +1,94 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 2-2"
+author: "Adam Clark"
+date: ""
+output: html_document
+---
+  
+## More complex case: random slopes and intercepts
+
+Okay, now let's try a somewhat more complex case, where both the slope and the intercepts vary across blocks. Let's keep a few observations (2 plots) per block this time.
+
+```{r echo=TRUE}
+require(nlme) # load package
+
+# Multiple regression example
+set.seed(231011) # seed for analyses
+error = 10 # residual error
+n_blocks = 10 # number of blocks
+intercepts = sort(rnorm(n_blocks, mean = 200, sd = 80)) # y-intercepts for each block
+slopes = rnorm(n_blocks, mean = 5, sd = 4) # slope
+
+
+# make fake data for 50 plots
+bdat = data.frame(plot = 1:50,
+                  block = rep(1:n_blocks, each = 50),
+                  diversity = sample(1:32, 50*n_blocks, rep = TRUE), # randomly select richness between 1 and 32
+                  biomass = NA)
+
+# generate random biomass data
+bdat$biomass=intercepts[bdat$block] + slopes[bdat$block]*bdat$diversity + rnorm(nrow(bdat), 0, error)
+
+# keep just 2 plots for the analysis
+bdat_slopes = bdat[bdat$plot %in% c(1,2),]
+
+# fit a mixed-effects regression
+mod_mixef2 = lme(biomass~diversity, data = bdat_slopes, random = ~1+diversity|block)
+
+# look at summary output - what do these terms tell us?
+summary(mod_mixef2)
+
+# look at random effects
+ranef(mod_mixef2)
+
+# plot full dataset
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, data = bdat, col = rainbow(n_blocks)[bdat$block])
+
+# add lines
+for(i in 1:n_blocks) {
+  curve(fixef(mod_mixef2)[1]+ranef(mod_mixef2)[i,1] + (fixef(mod_mixef2)[2]+ranef(mod_mixef2)[i,2])*x, from = 1, to = 32, add = TRUE, lty = 2, col = rainbow(n_blocks)[i])
+}
+
+# plot observed vs. predicted
+prd = predict(mod_mixef2, newdata = bdat)
+plot(prd, bdat$biomass,
+     xlab = "prediction", ylab = "observation", col = rainbow(n_blocks)[bdat$block])
+abline(a=0, b = 1, lty = 2)
+
+# root mean square error:
+sqrt(mean((prd-bdat$biomass)^2))
+```
+
+Not too bad! In contrast, look what happens when we try to fit a regular multiple regression to the same data:
+  
+```{r echo=TRUE, warning=FALSE}
+# fit a mixed-effects regression
+mod_mult = lm(biomass~diversity*factor(block), data = bdat_slopes)
+
+# look at summary output - what do these terms tell us?
+summary(mod_mult)
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, data = bdat_slopes, col = rainbow(n_blocks)[bdat_slopes$block])
+
+# add lines
+dsq = 1:32
+for(i in 1:n_blocks) {
+  pred = predict(mod_mult, newdata = data.frame(diversity = dsq, block = i))
+  lines(dsq, pred, col = rainbow(n_blocks)[i], lty = 2)
+}
+
+# plot observed vs. predicted
+prd_multi = predict(mod_mult, newdata = bdat)
+
+plot(prd_multi, bdat$biomass,
+     xlab = "prediction", ylab = "observation", col = rainbow(n_blocks)[bdat$block])
+abline(a=0, b = 1, lty = 2)
+
+# root mean square error:
+sqrt(mean((prd_multi-bdat$biomass)^2))
+```
+
+Notice, we still get estimates of the slope and intercept, but no estimate of uncertainty (because of the small sample size). And, the fit is quite a bit worse. Again, we managed to get "better" estimates by "borrowing power" (grouping uncertainty) from across observations.

@@ -1,0 +1,78 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 2-1; Independent Work"
+author: "Adam Clark"
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Try analyzing the two datasets below
+
+## Problem 1:
+
+Look at the following example analysis. I've included all code that you need to make the dataset and to analyse it using the `lme` function.
+
+What are the fixed and random effects for the model? What is the residual variance? What is the variance across the random effects (i.e. the standard deviation of the Gaussian prior)? What assumptions are we making about this regression?
+
+```{r echo=TRUE}
+require(nlme) # load package
+
+# make data for example analysis 1
+set.seed(231011)
+n_blocks = 10
+
+intercepts = rnorm(n_blocks, 20, 8)
+slopes = 2
+error = 2
+bdat = data.frame(plot = 1:3,
+                  block = rep(1:n_blocks, each = 3),
+                  diversity = runif(n_blocks*3, 1, 10),
+                  biomass = NA)
+bdat$biomass=intercepts[bdat$block] + slopes*bdat$diversity + rnorm(nrow(bdat), 0, error)
+bdat=bdat[bdat$block!=3 | bdat$plot==bdat$block,]
+
+write.csv(bdat, "dataset_1.csv", row.names = FALSE)
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, col = block, data = bdat)
+for(i in 1:n_blocks) {
+  if(i==3) {
+    abline(intercepts[i], slopes, col = i, lty=2)
+  } else {
+    abline(intercepts[i], slopes, col = i)
+  }
+}
+
+
+# analyse
+require(nlme)
+mod = lme(biomass~diversity, random = ~1|block, data = bdat)
+summary(mod)
+
+fixef(mod)
+ranef(mod)
+
+VarCorr(mod)
+```
+
+## Problem 2:
+
+Now, try running an analysis yourself. Use the code below to load the simulated dataset (you may need to change your working directory first using the `setwd` command, or in the menu under "Session" -> "Set Working Directory"). For reference I've included the code for plotting the data:
+
+```{r echo=TRUE}
+bdat = read.csv("dataset_2.csv") # load data
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, col = block, data = bdat)
+```
+
+Try answering the same questions as listed above, based on your fitted model.
+
+## Bonus question:
+
+How could we calculate R-squared for this system (remember the formula we discussed briefly in class). Can we calculate separate estimates for the goodness of fit for the random effects estimates, vs. the fixed effects estimates?
