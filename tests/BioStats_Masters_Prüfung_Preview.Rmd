@@ -1,0 +1,143 @@
+---
+title: "MSB.102: Biostatistics and Experimental Design: Final Exam, Course Sections 1-2"
+author: "Adam Clark & Kristina Sefc"
+date: "2024-29-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Analyse the following datasets using generalised least squares (GLS) or mixed effects modelling (ME). Then use the results of your analyses to answer the following questions. Record your answers and corresponding R commands on the answer sheet (with informative comments!) and submit them over the Moodle site before the end of class. Please make your answers *short* - just a few words and lines of code per question is enough.
+
+You may use notes, internet searches, AI, etc. to help you with the assignments - however, you must answer the questions yourself (i.e. no working together with other students).
+
+## Question 1: Fishery Count Data (14 points total)
+
+Imagine that you are a fishery biologist trying to identify the impact of two different classes of toxins on fish population sizes. You are given the following dataset on fish populations from your colleague:
+
+```{r echo=FALSE}
+set.seed(242911)
+n = 50
+
+# make fake data
+fdat = data.frame(
+  fish_count = NA,
+  toxin_1 = exp(rnorm(n, 1.5, 0.2))*rbinom(n, 1, 0.7),
+  toxin_2 = exp(rnorm(n, 0.1, 0.9))*rbinom(n, 1, 0.7)
+)
+
+# make fake response variable
+log_lambda = log(30) - fdat$toxin_1*0.1 - fdat$toxin_2*0.2 - fdat$toxin_1*fdat$toxin_2*0.4
+fdat$fish_count = rpois(n, exp(log_lambda))
+
+write.csv(fdat, "d1_fishery.csv", row.names = FALSE)
+```
+
+```{r echo=TRUE}
+fdat = read.csv("d1_fishery.csv")
+head(fdat)
+```
+
+### Question 1.1: 2 point
+
+Fit a simple "intercept only" model predicting average fish population size for the full dataset (i.e. using the formula 'fish_count ~ 1').
+
+What distributional family did you use for your model (hint: think "fish", but in French...)?
+
+### Question 1.2: 1 point
+
+What does your fitted model tell us about the average fish population size? Hint: recall that you will need to account for the link function while interpreting your regression.
+
+### Question 1.3: 3 points
+
+Fit models testing:
+
+1. the effect of each toxin on fish population size
+2. the multivariate effect of both toxins on fish population size
+3. the interactive effects of both toxins of fish population size
+
+and record the R commands that you used to fit the models on your answer sheet.
+
+### Question 1.4: 2 points
+
+Which of these models fits the data best? Justify your answer using some kind of quantitative test.
+
+### Question 1.5: 3 points
+
+Use your best fitting model to predict the expected fish population sizes for three hypothetical sites:
+
+1. a "control" site, where the concentration of both toxins is 0
+2. "site A", where the concentration of toxin_1 = 1.5, but the concentration of toxin_2 = 0
+3. "site B", where the concentration of toxin_1 = 0.5 and the concentration of toxin_2 = 1.2
+
+Hint: remember the link function for the distributional family that you chose while fitting your models.
+
+### Question 1.6: 3 points
+
+Biologically speaking, what does the best fitting model tell us about the effect of these two toxins on fish population sizes?
+
+
+
+## Question 3: Plant Biodiversity Experiment (12 points total)
+
+You have been asked by your supervisor to tests for relationships between biodiversity and productivity in a grassland plant experiment. Each of 30 plots have been planted with mixtures of 1, 2, 4, 8, or 16 grassland plant species, and the corresponding dry aboveground biomass has been measured at the end of the growing season for the past 3 years:
+
+```{r echo=FALSE}
+set.seed(242911)
+n = 30
+tm = 3
+sp = c(1,2,4,8,16)
+
+# make fake data
+bdat = data.frame(
+  plot_id = rep(1:n, tm),
+  year = rep(1:tm, each = n),
+  biodiversity = sample(sp, n*tm, rep = TRUE),
+  productivity = NA
+)
+
+plot_effect = rnorm(n, 0, 5)
+bdat$productivity = 20 + 1.2*bdat$biodiversity + plot_effect[bdat$plot_id] + rnorm(n*tm, 2)
+
+write.csv(bdat, "d3_biodiversity.csv", row.names = FALSE)
+```
+
+```{r echo=TRUE}
+bdat = read.csv("d3_biodiversity.csv")
+head(bdat)
+
+plot(productivity ~ biodiversity, bdat, col = rainbow(30)[bdat$plot_id])
+```
+
+Note: each plot is shown in a different color.
+
+### Question 3.1: 2 points
+
+Fit a simple linear model to the data using the following command:
+
+```{r echo=TRUE}
+require(nlme)
+  mod3.0 = gls(productivity ~ biodiversity, data = bdat)
+```
+
+What are the slope and intercept for this model? Are they significant? What do these terms tell us about the relationship between biomass and productivity in this experiment?
+
+### Question 3.2: 3 points
+
+Now, update the model described above to include a random intercept term grouped by plot_id, using the commands in the nlme package.
+
+What is the resulting plot-level variability (can be expressed as variance or standard deviation) for the regression? How does it compare to the residual (unexplained) variability?
+
+### Question 3.3: 3 points
+
+Compare the two models via ANOVA. Which model provides a better fit for the data? Hint: remember that you might need to refit the models with a different algorithm before comparing them.
+
+### Question 3.4: 2 points
+
+Make a histogram showing the plot-level random effects for the regression in Question 3.2 (you only need to upload the code for doing so, not the image).
+
+### Question 3.5: 2 points
+
+What kind of statistical distribution do these random effects follow? What are the mean and standard deviation of the distribution?
