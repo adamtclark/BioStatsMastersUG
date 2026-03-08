@@ -1,0 +1,30 @@
+---
+title: "Biostatistics, Biology Masters, Meeting 3-1; Independent Work"
+author: "Adam Clark"
+output: html_document
+---
+
+## Homework problem:
+
+Try fitting different structures of models (combinations of fixed effect slopes and intercepts, and random effects vs. nested random effects).
+
+```{r echo=TRUE}
+bdat = read.csv("dataset_3.1.csv")
+n_plots = length(unique(bdat$plot))
+
+# plot
+par(mar=c(4,4,2,2))
+plot(biomass~diversity, col = rainbow(n_plots)[plot], pch = subplot, data = bdat)
+```
+
+Note - different point types show different subplots, and different colors show different plots. We can plot these trends a bit more informatively using the `coplot` command. It is set up similarly to the `lme` function (with some extra bits that we'll discuss later).
+
+```{r echo=TRUE}
+par(mar=c(4,4,2,2))
+coplot(biomass~diversity|as.factor(plot), data = bdat,
+       panel = function(x, y, ...) {points(x,y, pch = bdat$subplot[bdat$plot==1])})
+```
+
+What form of regression should you use? Random slopes? Random intercepts? Nested? Something else?
+
+What do the results of the regression show us? What are the fixed and random effects estimates? What is the variability across parameters?

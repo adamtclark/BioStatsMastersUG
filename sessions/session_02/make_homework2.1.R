@@ -14,7 +14,7 @@ bdat <- data.frame(
 bdat$biomass <- intercepts[bdat$block] + slopes[bdat$block] * bdat$diversity + rnorm(nrow(bdat), 0, error)
 bdat <- bdat[bdat$block != 3 | bdat$plot == bdat$block, ]
 
-write.csv(bdat, "dataset_1.csv", row.names = FALSE)
+write.csv(bdat, "dataset_2.1.csv", row.names = FALSE)
 
 # plot
 par(mar = c(4, 4, 2, 2))

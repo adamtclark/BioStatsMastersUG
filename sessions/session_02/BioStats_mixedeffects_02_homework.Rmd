@@ -1,7 +1,6 @@
 ---
 title: "Biostatistics, Biology Masters, Meeting 2-2; Independent Work"
 author: "Adam Clark"
-date: "2024-10-31"
 output: html_document
 ---
 
@@ -10,7 +9,7 @@ output: html_document
 Try analysing the following dataset using the `lme` function.
 
 ```{r echo=TRUE}
-bdat = read.csv("dataset_1.csv")
+bdat = read.csv("dataset_2.1.csv")
 n_blocks = length(unique(bdat$block))
 
 # plot

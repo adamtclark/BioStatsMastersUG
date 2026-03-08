@@ -1,10 +1,10 @@
 # make data for example analysis 1
-set.seed(231011)
+set.seed(231107)
 n_blocks = 10
 
-intercepts = rnorm(n_blocks, 20, 8)
-slopes = 2
-error = 2
+intercepts = rnorm(n_blocks, 14, 7)
+slopes = 5
+error = 5
 bdat = data.frame(plot = 1:3,
                   block = rep(1:n_blocks, each = 3),
                   diversity = runif(n_blocks*3, 1, 10),
@@ -12,7 +12,7 @@ bdat = data.frame(plot = 1:3,
 bdat$biomass=intercepts[bdat$block] + slopes*bdat$diversity + rnorm(nrow(bdat), 0, error)
 bdat=bdat[bdat$block!=3 | bdat$plot==bdat$block,]
 
-write.csv(bdat, "dataset_1.csv", row.names = FALSE)
+write.csv(bdat, "dataset_1.2.csv", row.names = FALSE)
 
 # plot
 par(mar=c(4,4,2,2))

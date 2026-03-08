@@ -33,7 +33,7 @@ bdat = data.frame(plot = rep(1:n_plots, each = n_subplots*n_reps),
 
 bdat$biomass=intercepts[cbind(bdat$plot, bdat$subplot)] + slopes[cbind(bdat$plot, bdat$subplot)]*bdat$diversity + rnorm(nrow(bdat), 0, error)
 
-write.csv(bdat, "dataset_2.csv", row.names = FALSE)
+write.csv(bdat, "dataset_3.1.csv", row.names = FALSE)
 
 # plot
 par(mar=c(4,4,2,2))

@@ -111,34 +111,3 @@ summary(mmod2)
 ```
 
 You can apply these test to all kinds of models. ANOVA apply for any nested set of models (i.e. models that differ in only a single random effect or a single fixed effect), whereas AIC can be applied for (most) any analyses that share the same response variables. Remember that for AIC, smaller values mean better fitting models (though also note that AIC can be under-conservative for big datas´ets). We'll discuss more complex examples in later classes.´
-
-## Your turn: Homework 2:
-
-Try fitting different structures of models (combinations of fixed effect slopes and intercepts, and random effects vs. nested random effects).
-
-```{r echo=TRUE}
-bdat = read.csv("dataset_2.csv")
-n_plots = length(unique(bdat$plot))
-
-# plot
-par(mar=c(4,4,2,2))
-plot(biomass~diversity, col = rainbow(n_plots)[plot], pch = subplot, data = bdat)
-```
-
-Note - different point types show different subplots, and different colors show different plots. We can plot these trends a bit more informatively using the `coplot` command. It is set up similarly to the `lme` function (with some extra bits that we'll discuss later).
-
-```{r echo=TRUE}
-par(mar=c(4,4,2,2))
-coplot(biomass~diversity|as.factor(plot), data = bdat,
-       panel = function(x, y, ...) {points(x,y, pch = bdat$subplot[bdat$plot==1])})
-```
-
-What form of regression should you use? Random slopes? Random intercepts? Nested? Something else?
-
-What do the results of the regression show us? What are the fixed and random effects estimates? What is the variability across parameters?
-
-## Next section:
-
-Work through the datasets described here, and post any questions you have on the blog on the course website. In addition, try to find a "real-world" example of a dataset (e.g. from your research) that can be analysed using the tools we've discussed today, and try applying them. What model structure fits best? What does this structure hypothesise about the data? What do your results tell you?
-
-We'll discuss these points together in the coming sessions. Next, we'll expand on the topics we've discussed this far using two additional packages: `lme4`, and `brms`.
